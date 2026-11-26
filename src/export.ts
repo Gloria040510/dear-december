@@ -49,7 +49,7 @@ export function paintComposition(ctx: CanvasRenderingContext2D, gl: HTMLCanvasEl
   ctx.fillStyle = palette.background;
   ctx.fillRect(0, 0, w, h);
   const aura = ctx.createRadialGradient(w * .5, h * .52, 0, w * .50, h * .54, h * .68);
-  aura.addColorStop(0, options.theme === 'Winter' ? '#132232' : '#20251a');
+  aura.addColorStop(0, palette.aura);
   aura.addColorStop(1, palette.background);
   ctx.fillStyle = aura;
   ctx.fillRect(0, 0, w, h);

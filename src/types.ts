@@ -9,8 +9,8 @@ export type Memory = { id: number } & ({ text: string } | { example: true });
 export type CameraModel = 'opening' | 'cnn' | 'geometry';
 export type Lens = 'auto' | 'portrait' | 'landscape';
 export const palettes = {
-  Champagne: { background: '#0b100e', shadow: '#79572f', ink: '#bd854c', light: '#f3c684', white: '#fff1ce' },
-  Winter: { background: '#080e18', shadow: '#325777', ink: '#739bc9', light: '#bbdff7', white: '#effaff' },
-  Forest: { background: '#081512', shadow: '#416149', ink: '#a47546', light: '#d8b578', white: '#fff0cb' },
+  Champagne: { background: '#0a120f', aura: '#25382d', shadow: '#7e6138', ink: '#bc915d', light: '#eed0a1', white: '#fff1d5' },
+  Winter: { background: '#0a111b', aura: '#203345', shadow: '#3b5975', ink: '#7b9fbe', light: '#badcf0', white: '#edf8ff' },
+  Forest: { background: '#081511', aura: '#233b2e', shadow: '#4c674e', ink: '#a37b50', light: '#d8b985', white: '#fff0ce' },
 };
 export type Theme = keyof typeof palettes;

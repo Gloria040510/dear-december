@@ -5,7 +5,7 @@ export const velocityShader = /* glsl */ `
   const float PI = 3.14159265;
 
   vec3 goal(vec4 rest) {
-    float angle = twist + clock * .13 + rest.y * .09;
+    float angle = twist + clock * .09 + rest.y * .09;
     mat2 rotation = mat2(cos(angle), -sin(angle), sin(angle), cos(angle));
     vec2 ring = rotation * rest.xz * breath;
     vec3 tree = vec3(ring.x, rest.y, ring.y);
@@ -44,49 +44,85 @@ export const positionShader = /* glsl */ `
   }`;
 export const pointVertex = /* glsl */ `
   uniform sampler2D simulation, motionField;
-  uniform float simulated, time, pixelRatio, glow;
+  uniform vec2 viewport;
+  uniform float simulated, pixelRatio, glow, density;
   attribute vec2 particleUV;
   attribute float glitter, kind;
-  varying float vAlpha, vGlitter, vKind, vDepth;
-  varying vec2 vTrail;
+  varying float vAlpha, vGlitter, vDepth;
+  varying vec2 vCenter, vTrail;
+  varying float vRadius;
   void main() {
-    vec4 p = vec4(position, glitter);
+    vec3 p = position;
     vTrail = vec2(0.);
     if (simulated > .5) {
-      p = texture2D(simulation, particleUV);
+      p = texture2D(simulation, particleUV).xyz;
       vec2 velocity = (modelViewMatrix * vec4(texture2D(motionField, particleUV).xyz, 0.)).xy;
-      vTrail = velocity * min(.12, .28 / max(.001, length(velocity)));
+      vTrail = velocity * min(.13, .32 / max(.001, length(velocity)));
     }
-    vec4 mv = modelViewMatrix * vec4(p.xyz, 1.);
+    vec4 mv = modelViewMatrix * vec4(p, 1.);
     gl_Position = projectionMatrix * mv;
-    float pulse = .7 + .3 * sin(time * (1.3 + glitter * 3.) + glitter * 238.);
-    float size = kind > .9 ? (1.1 + pow(glitter, 15.) * 5.4) : (.72 + pow(glitter, 8.) * (kind > .4 ? 3.7 : 2.6));
+    float size = kind > .9 ? (1.7 + pow(glitter, 11.) * 4.0) : (1.85 + pow(glitter, 7.) * (kind > .4 ? 3.7 : 2.5));
     vDepth = clamp(abs(mv.z + 8.) * .21, 0., 1.);
-    gl_PointSize = clamp(size * pixelRatio * (8.4 / -mv.z) * (1. + vDepth * .45 + length(vTrail)), 1., 17.);
-    vAlpha = mix(.14, .73, pow(glitter, 2.25)) * pulse * (1. - vDepth * .41) * (.87 + .13 * sin(p.w * 6.283)) * glow;
-    if (kind > .9) vAlpha *= .48;
-    else if (kind > .4) vAlpha *= 1.32;
+    float diameter = clamp(size * pixelRatio * (8.4 / max(1., -mv.z)) * (1. + vDepth * .40 + length(vTrail)), 2., 19.);
+    // Leave room for rasterizer rounding, then shade around the true
+    // fractional screen position so small stars cross pixels smoothly.
+    gl_PointSize = ceil(diameter) + 2.;
+    vRadius = diameter * .5;
+    vCenter = (gl_Position.xy / gl_Position.w * .5 + .5) * viewport;
+    float index = floor(particleUV.y * 256.) * 256. + floor(particleUV.x * 256.);
+    float edge = 1. - smoothstep(density - 1900., density, index);
+    vAlpha = mix(.045, .49, pow(glitter, 2.2)) * (1. - vDepth * .47) * glow;
+    if (kind > .9) vAlpha *= .46;
+    else vAlpha *= edge * (kind > .4 ? 1.17 : 1.);
     vGlitter = glitter;
-    vKind = kind;
   }`;
 export const pointFragment = /* glsl */ `
   uniform vec3 shadow, ink, light, white;
-  varying float vAlpha, vGlitter, vKind, vDepth;
-  varying vec2 vTrail;
+  uniform float warmth;
+  varying float vAlpha, vGlitter, vDepth;
+  varying vec2 vCenter, vTrail;
+  varying float vRadius;
   void main() {
-    vec2 uv = gl_PointCoord - .5;
-    float d = length(uv);
-    float core = exp(-d*d*(28. - vDepth*8.));
-    float a = core * (1. - smoothstep(.36, .5, d));
-    float rear = length(uv + vec2(vTrail.x, -vTrail.y));
-    a += exp(-rear*rear*43.) * length(vTrail) * .62 * (1. - smoothstep(.39, .5, d));
-    if (vGlitter > .974 && vKind < .92) {
-      float rays = exp(-abs(uv.x)*36.) * exp(-abs(uv.y)*5.) + exp(-abs(uv.y)*36.) * exp(-abs(uv.x)*5.);
-      a += rays * .31 * (1. - smoothstep(.32, .5, d));
-    }
+    vec2 offset = (gl_FragCoord.xy - vCenter) / vRadius;
+    float distanceSquared = dot(offset, offset);
+    if (distanceSquared >= 1.) discard;
+    float core = exp(-distanceSquared * (3.7 - vDepth*.8));
+    vec2 rear = offset + vTrail;
+    float trail = exp(-dot(rear, rear)*5.2) * length(vTrail) * .27;
+    float a = (core + trail) * (1. - smoothstep(.22, 1., distanceSquared));
     vec3 c = mix(shadow, ink, smoothstep(.09, .54, vGlitter));
     c = mix(c, light, smoothstep(.43, .91, vGlitter));
-    c = mix(c, white, smoothstep(.83, 1., vGlitter)*.86);
+    c = mix(c, white, smoothstep(.83, 1., vGlitter)*(.66 + warmth * .16));
     gl_FragColor = vec4(c, vAlpha * a);
+    #include <colorspace_fragment>
+  }`;
+
+export const backdropVertex = /* glsl */ `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = vec4(position.xy, 0., 1.);
+  }`;
+
+export const backdropFragment = /* glsl */ `
+  uniform vec3 base, aura;
+  uniform vec2 focalPoint;
+  uniform sampler2D palace;
+  uniform float artAspect, viewportAspect, artStrength;
+  varying vec2 vUv;
+  void main() {
+    vec2 distanceToTree = (vUv - focalPoint) / vec2(.39, .46);
+    float halo = exp(-dot(distanceToTree, distanceToTree) * 1.8);
+    vec2 pool = (vUv - vec2(focalPoint.x, .15)) / vec2(.36, .17);
+    float ground = exp(-dot(pool, pool) * 1.9);
+    vec3 backdrop = mix(base, aura, halo * .77 + ground * .19);
+    if (artAspect > 0.) {
+      // Cover the canvas without moving or animating the illustration.
+      vec2 fit = min(vec2(viewportAspect / artAspect, artAspect / viewportAspect), 1.);
+      vec2 artUv = (vUv - .5) * fit + .5;
+      vec3 illustration = texture2D(palace, artUv).rgb;
+      backdrop = mix(backdrop, illustration * .86, artStrength);
+    }
+    gl_FragColor = vec4(backdrop, 1.);
     #include <colorspace_fragment>
   }`;

@@ -4,6 +4,8 @@ import '@fontsource-variable/cormorant-garamond';
 import '@fontsource-variable/cormorant-garamond/wght-italic.css';
 import '@fontsource-variable/inter';
 import './style.css';
+import palaceUrl from './illustrations/winter-palace.webp';
+import letterUrl from './illustrations/sealed-letter.webp';
 import { PerformanceAudio } from './audio';
 import { DecemberScene } from './scene';
 import { dimensions, download, makeRecording, paintComposition, supportedFormats } from './export';
@@ -320,7 +322,7 @@ function App() {
     const host = art.current;
     if (!host) return;
     let engine: DecemberScene;
-    try { engine = new DecemberScene(host); }
+    try { engine = new DecemberScene(host, palaceUrl); }
     catch { setRendererError(true); return; }
     scene.current = engine;
     const resize = () => {
@@ -400,6 +402,7 @@ function App() {
     if (box) scene.current?.layout(box.width, box.height, isIntro);
   }, [lens, isIntro]);
   useEffect(() => { scene.current?.setTheme(theme); }, [theme]);
+  useEffect(() => { if (scene.current) scene.current.covered = dialog !== null; }, [dialog]);
   useEffect(() => {
     document.documentElement.lang = language;
     document.title = language === 'en' ? `${brand} — ${t.tagline}` : `${t.titleStart}${t.titleEnd} — ${brand}`;
@@ -431,16 +434,6 @@ function App() {
   }
 
   return <main ref={view} lang={language} data-theme={theme} className={`app ${isIntro ? 'intro' : 'performance'} ${cinematic ? 'cinematic' : ''} ${isEnd ? 'ending' : ''}`}>
-    <div className={`stage-region lens-${lens}`}>
-      <div className="art" ref={art} />
-      <div className="stage-overlay" onPointerMove={e => trackPointer(e)} onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); trackPointer(e, true); }} onPointerUp={e => trackPointer(e, false)} onPointerCancel={() => { pointer.current.pressed = false; }} onPointerLeave={() => { if (!pointer.current.pressed) pointer.current.hand = undefined; }}>
-        {!isIntro && memories.map(item => <button key={item.id} title={t.revealMemory} aria-label={t.revealMemoryAt(item.id + 1)} className="memory-marker" ref={el => { if (el) markerEls.current.set(item.id, el); else markerEls.current.delete(item.id); }} onPointerDown={e => e.stopPropagation()} onClick={() => recall(item)} />)}
-        {!isIntro && [0, 1].map(i => <span key={i} ref={el => { if (el) cursorEls.current[i] = el; }} className="hand-cursor" aria-hidden="true"/>)}
-      </div>
-      {!isIntro && showCamera && cameraReady && <canvas className={`camera-overlay ${corner} ${cutout ? 'cutout' : ''}`} ref={viewCamera} width={360} height={270} aria-label={t.cameraPreview}/>}
-      {selection && !isEnd && <div key={selection.id} aria-live="polite" className="memory-reveal"><span>✧</span><p>{memoryText(selection, language)}</p><button className="icon-button" onClick={clearMemory} aria-label={t.dismissMemory}><Icon name="close" size={17}/></button></div>}
-      {isEnd && <div className="ending-copy"><p>{t.closing}</p><small>{t.question}</small><small className="ending-translation" lang={secondaryLanguage}>{words[secondaryLanguage].question}</small></div>}
-    </div>
     <header className="topbar ui">
       <button className="wordmark" onClick={isIntro ? undefined : returnHome} aria-label={isIntro ? brand : t.home}><span className="brand-mark"><Icon name="star" size={19}/></span><span className="wordmark-name" lang="en">{brand}<span className="wordmark-period">.</span></span></button>
       <div className="top-actions">
@@ -454,13 +447,37 @@ function App() {
         <button className="top-button guide-button" aria-label={t.guide} onClick={() => setDialog('guide')}><span className="question-icon" aria-hidden="true">?</span><span>{t.guide}</span></button>
       </div>
     </header>
-    {isIntro ? <>
-      <section className="entry ui">
+    {isIntro && <div className="entry-heading ui">
         <p className="kicker"><span className="kicker-star">✦</span> {t.installation}</p>
         <h1>{t.titleStart}{language === 'en' ? ' ' : ''}<em>{t.titleEnd}<span>{t.titlePeriod}</span></em></h1>
         <p className="tagline">{t.tagline}</p>
+    </div>}
+    <div className={`stage-region lens-${lens}`}>
+      {isIntro && <img className="hall-backdrop" src={palaceUrl} width="1122" height="1402" alt="" fetchPriority="high"/>}
+      <div className="art" ref={art} />
+      {isIntro && <div className="hall-mount">
+        <span className="hall-trim" aria-hidden="true"/>
+        <aside className="art-caption ui" aria-label={t.artworkPreview}><Icon name="star" size={14}/><span>{t.tree}</span></aside>
+      </div>}
+      {!isIntro && <div className="stage-overlay" onPointerMove={e => trackPointer(e)} onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); trackPointer(e, true); }} onPointerUp={e => trackPointer(e, false)} onPointerCancel={() => { pointer.current.pressed = false; }} onPointerLeave={() => { if (!pointer.current.pressed) pointer.current.hand = undefined; }}>
+        {memories.map(item => <button key={item.id} title={t.revealMemory} aria-label={t.revealMemoryAt(item.id + 1)} className="memory-marker" ref={el => { if (el) markerEls.current.set(item.id, el); else markerEls.current.delete(item.id); }} onPointerDown={e => e.stopPropagation()} onClick={() => recall(item)} />)}
+        {[0, 1].map(i => <span key={i} ref={el => { if (el) cursorEls.current[i] = el; }} className="hand-cursor" aria-hidden="true"/>)}
+      </div>}
+      {!isIntro && showCamera && cameraReady && <canvas className={`camera-overlay ${corner} ${cutout ? 'cutout' : ''}`} ref={viewCamera} width={360} height={270} aria-label={t.cameraPreview}/>}
+      {selection && !isEnd && <div key={selection.id} aria-live="polite" className="memory-reveal"><span>✧</span><p>{memoryText(selection, language)}</p><button className="icon-button" onClick={clearMemory} aria-label={t.dismissMemory}><Icon name="close" size={17}/></button></div>}
+      {isEnd && <div className="ending-copy"><p>{t.closing}</p><small>{t.question}</small><small className="ending-translation" lang={secondaryLanguage}>{words[secondaryLanguage].question}</small></div>}
+    </div>
+    {isIntro ? <>
+      <section className="entry ui">
         <div className="entry-card">
-          <div className="input-heading"><label htmlFor="memory-0">{t.openingQuestion}</label><span>{entries.filter(item => item.trim()).length}<span className="slash">/</span>5</span></div>
+          <div className="input-heading">
+            <img className="letter-thumb" src={letterUrl} width="80" height="61" alt=""/>
+            <div className="letter-heading">
+              <label htmlFor="memory-0">{t.openingQuestion}</label>
+              <small>{t.letterHint}</small>
+            </div>
+            <span className="letter-count">{entries.filter(item => item.trim()).length}<span className="slash">/</span>5</span>
+          </div>
           <div className="memory-list">
             {entries.map((entry, index) => <div className="memory-row" key={index}><span aria-hidden="true">✧</span><textarea id={`memory-${index}`} aria-label={t.memory(index + 1)} value={entry} maxLength={180} rows={index === 0 ? 2 : 1} placeholder={index === 0 ? t.firstPlaceholder : t.nextPlaceholder} onChange={e => editEntry(index, e.target.value)}/>{entries.length > 1 && <button className="icon-button remove-memory" onClick={() => setEntries(items => items.filter((_, i) => i !== index))} aria-label={t.removeMemory(index + 1)}><Icon name="close" size={15}/></button>}</div>)}
           </div>
@@ -477,10 +494,9 @@ function App() {
             <button className="primary-button" onClick={() => void begin()} disabled={working || rendererError}><Icon name="star" size={17}/>{working ? t.preparing : t.begin}</button>
             <button className="demo-button" onClick={() => void begin(true)} disabled={working || rendererError}><Icon name="play" size={16}/> {t.watchDemo}</button>
           </div>
-          <div className="input-mode" aria-label={t.inputMode}><button aria-pressed={mode !== 'camera'} onClick={() => setMode('pointer')}><Icon name="pointer" size={14}/> {t.inputs.pointer}</button><button aria-pressed={mode === 'camera'} onClick={() => setMode('camera')}><Icon name="camera" size={15}/> {t.inputs.camera}</button></div>
+          <div className="input-mode" role="group" aria-label={t.inputMode}><button aria-pressed={mode !== 'camera'} onClick={() => setMode('pointer')}><Icon name="pointer" size={14}/> {t.inputs.pointer}</button><button aria-pressed={mode === 'camera'} onClick={() => setMode('camera')}><Icon name="camera" size={15}/> {t.inputs.camera}</button></div>
         </div>
       </section>
-      <aside className="art-caption ui" aria-label={t.livePreview}><span className="live-dot"/><div><b>{t.tree}</b><span>{t.particleStudy}</span></div></aside>
       <footer className="intro-footer ui"><span>{t.footer}</span><button onClick={() => setDialog('lab')}>{t.lab.title} <Icon name="chevron" size={13}/></button><span className="privacy"><Icon name="circle" size={12}/> {t.privacy}</span></footer>
     </> : <>
       <div className="stage-tag ui"><span className="live-dot"/>{isEnd ? t.ending : stage === 'formation' ? t.formation : t.memories}</div>
@@ -502,10 +518,11 @@ function App() {
     </>}
     {(status || rendererError) && <div className={`status-toast ${isIntro ? 'intro-toast' : ''}`} role="status">{rendererError ? t.notices.webGL : status && t.notices[status]}</div>}
     {dialog && <div className="scrim" onPointerDown={e => { if (e.target === e.currentTarget) setDialog(null); }}>
-      {dialog === 'lab' ? <Suspense fallback={<div className="dialog" role="status">{t.lab.loading}</div>}><Lab language={language} close={() => setDialog(null)}/></Suspense> : <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+      {dialog === 'lab' ? <Suspense fallback={<div className="dialog" role="status">{t.lab.loading}</div>}><Lab language={language} close={() => setDialog(null)}/></Suspense> : <div className={`dialog ${dialog === 'guide' ? 'guide-dialog' : ''}`} role="dialog" aria-modal="true" aria-labelledby="dialog-title">
         <button className="icon-button dialog-close" aria-label={t.closeDialog} onClick={() => setDialog(null)}><Icon name="close"/></button>
         {dialog === 'guide' ? <>
           <p className="kicker" lang="en">{brand}</p><h2 id="dialog-title">{t.guideTitle}</h2>
+          <img className="guide-illustration" src={letterUrl} width="768" height="512" alt=""/>
           <dl className="guide-list">{t.guideSteps.map(([action, effect]) => <div key={action}><dt>{action}</dt><dd>{effect}</dd></div>)}</dl>
           <button className="outline-button" onClick={() => setDialog('lab')}>{t.openLab}</button>
         </> : <>
