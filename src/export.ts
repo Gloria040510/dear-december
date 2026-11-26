@@ -1,5 +1,5 @@
 import { palettes, type Lens, type Stage, type Theme } from './types';
-import { closing, question } from './words';
+import { otherLanguage, words, type Language } from './words';
 
 export const formats = [
   { label: 'WebM · VP9', mime: 'video/webm;codecs=vp9,opus', ext: 'webm' },
@@ -23,7 +23,8 @@ export function download(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 
-type Composition = { theme: Theme; stage: Stage; memory?: string; camera?: HTMLCanvasElement | HTMLVideoElement; corner: string; cutout: boolean };
+type Composition = { language: Language; theme: Theme; stage: Stage; memory?: string; camera?: HTMLCanvasElement | HTMLVideoElement; corner: string; cutout: boolean };
+const serif = '"Cormorant Garamond Variable", Georgia, "Noto Serif SC", "Songti SC", SimSun, "Microsoft YaHei", serif';
 function lines(ctx: CanvasRenderingContext2D, text: string, width: number) {
   const rows: string[] = [];
   for (const line of text.split('\n')) {
@@ -77,22 +78,28 @@ export function paintComposition(ctx: CanvasRenderingContext2D, gl: HTMLCanvasEl
 
   if (options.memory || options.stage === 'ending') {
     const unit = Math.min(w, h);
-    const main = options.memory || closing;
-    const additional = options.memory ? '' : question;
+    const { language } = options;
+    const main = options.memory || words[language].closing;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = palette.white;
     ctx.shadowColor = palette.background;
     ctx.shadowBlur = unit * .033;
-    const fontSize = unit * (options.memory ? .063 : .047);
-    ctx.font = `500 ${fontSize}px "Cormorant Garamond Variable", Georgia, serif`;
+    const fontSize = unit * (options.memory ? .063 : language === 'zh-CN' ? .038 : .047);
+    ctx.font = `500 ${fontSize}px ${serif}`;
     const mainRows = lines(ctx, main, w * .83);
     const y = options.memory ? h * .54 - (mainRows.length - 1) * fontSize * .54 : h * .79;
     mainRows.forEach((row, i) => ctx.fillText(row, w * .5, y + i * fontSize * 1.08, w * .86));
-    if (additional) {
-      const sub = unit * .028;
-      ctx.font = `italic ${sub}px "Cormorant Garamond Variable", Georgia, serif`;
-      lines(ctx, additional, w * .79).forEach((row, i) => ctx.fillText(row, w * .5, y + mainRows.length * fontSize * 1.08 + i * sub * 1.5, w * .86));
+    if (!options.memory) {
+      let subtitleY = y + mainRows.length * fontSize * 1.08;
+      for (const [index, subtitleLanguage] of [language, otherLanguage[language]].entries()) {
+        const sub = unit * (index === 0 ? .028 : .022);
+        ctx.font = `${subtitleLanguage === 'en' ? 'italic ' : ''}${sub}px ${serif}`;
+        for (const row of lines(ctx, words[subtitleLanguage].question, w * .82)) {
+          ctx.fillText(row, w * .5, subtitleY, w * .86);
+          subtitleY += sub * 1.5;
+        }
+      }
     }
     ctx.shadowBlur = 0;
   }

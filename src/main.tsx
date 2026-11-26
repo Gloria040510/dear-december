@@ -8,24 +8,27 @@ import { PerformanceAudio } from './audio';
 import { DecemberScene } from './scene';
 import { dimensions, download, makeRecording, paintComposition, supportedFormats } from './export';
 import { Icon } from './icons';
-import { closing, examples, question } from './words';
-import { palettes, type Hand, type Lens, type Memory, type Mode, type Stage, type Theme } from './types';
+import { brand, initialLanguage, languages, memoryText, otherLanguage, rememberLanguage, words, type Language, type Notice } from './words';
+import { palettes, type CameraModel, type Hand, type Lens, type Memory, type Mode, type Stage, type Theme } from './types';
 import type { CameraHands } from './vision';
 
 const Lab = lazy(() => import('./Lab'));
 const themeNames = Object.keys(palettes) as Theme[];
-const modes: { id: Mode; label: string; icon: string }[] = [
-  { id: 'pointer', label: 'Mouse or touch', icon: 'pointer' },
-  { id: 'camera', label: 'Hand gestures', icon: 'camera' },
-  { id: 'demo', label: 'Auto demo', icon: 'play' },
+const modes: { id: Mode; icon: string }[] = [
+  { id: 'pointer', icon: 'pointer' },
+  { id: 'camera', icon: 'camera' },
+  { id: 'demo', icon: 'play' },
 ];
-const corners = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
+const corners = ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const;
 const lengthLabel = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 const dateStamp = () => new Intl.DateTimeFormat('sv-SE', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 type Recorder = ReturnType<typeof makeRecording>;
 type Dialog = 'guide' | 'lab' | 'creator' | null;
 
 function App() {
+  const [language, setLanguage] = useState(initialLanguage);
+  const t = words[language];
+  const secondaryLanguage = otherLanguage[language];
   const [theme, setTheme] = useState<Theme>('Champagne');
   const [stage, setStage] = useState<Stage>('beginning');
   const [mode, setMode] = useState<Mode>('pointer');
@@ -37,16 +40,16 @@ function App() {
   const [themeOpen, setThemeOpen] = useState(false);
   const [cinematic, setCinematic] = useState(false);
   const [lens, setLens] = useState<Lens>('auto');
-  const [status, setStatus] = useState('');
+  const [status, setStatus] = useState<Notice | null>(null);
   const [rendererError, setRendererError] = useState(false);
   const [working, setWorking] = useState(false);
   const [time, setTime] = useState(0);
   const [duration, setDuration] = useState(82);
   const [playing, setPlaying] = useState(false);
-  const [modelStatus, setModelStatus] = useState('');
+  const [modelStatus, setModelStatus] = useState<CameraModel | null>(null);
   const [showCamera, setShowCamera] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
-  const [corner, setCorner] = useState('bottom-right');
+  const [corner, setCorner] = useState<typeof corners[number]>('bottom-right');
   const [cutout, setCutout] = useState(false);
   const [cutoutLoading, setCutoutLoading] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -71,15 +74,20 @@ function App() {
   const statusTimer = useRef(0);
   const cameraVersion = useRef(0);
   const pointer = useRef<{ last: number; pressed: boolean; hand?: Hand }>({ last: 0, pressed: false });
-  const current = useRef({ theme, mode, lens, stage, selection, showCamera, cutout, corner, memories });
-  current.current = { theme, mode, lens, stage, selection, showCamera, cutout, corner, memories };
+  const current = useRef({ language, theme, mode, lens, stage, selection, showCamera, cutout, corner, memories });
+  current.current = { language, theme, mode, lens, stage, selection, showCamera, cutout, corner, memories };
   const isIntro = stage === 'beginning';
   const isEnd = stage === 'ending';
 
-  function inform(message: string, clear = false) {
+  function chooseLanguage(next: Language) {
+    setLanguage(next);
+    rememberLanguage(next);
+  }
+
+  function inform(message: Notice | null = null, clear = false) {
     window.clearTimeout(statusTimer.current);
     setStatus(message);
-    if (clear) statusTimer.current = window.setTimeout(() => setStatus(''), 5400);
+    if (clear) statusTimer.current = window.setTimeout(() => setStatus(null), 5400);
   }
 
   function transition(next: Stage) {
@@ -92,7 +100,7 @@ function App() {
     if (sceneStage.current !== 'memories' || !scene.current) return;
     scene.current.selected = item.id;
     setSelection(item);
-    selectedUntil.current = elapsed.current + Math.min(10, 3.5 + item.text.length * .041);
+    selectedUntil.current = elapsed.current + Math.min(10, 3.5 + memoryText(item, current.current.language).length * .041);
   }
 
   function clearMemory() {
@@ -117,19 +125,19 @@ function App() {
     setCameraReady(false);
     setCutout(false);
     setCutoutLoading(false);
-    setModelStatus('');
+    setModelStatus(null);
     if (scene.current) scene.current.hands = [];
   }
 
   function fallbackCamera() {
     closeCamera();
     setMode('pointer');
-    inform('Camera unavailable. Mouse and touch are ready.', true);
+    inform('cameraFallback', true);
   }
 
   async function enableCamera() {
     const id = ++cameraVersion.current;
-    setModelStatus('Opening camera…');
+    setModelStatus('opening');
     try {
       const { CameraHands } = await import('./vision');
       if (id !== cameraVersion.current) return;
@@ -144,7 +152,7 @@ function App() {
       }, setModelStatus, fallbackCamera);
       camera.current = engine;
       await engine.start();
-      if (id === cameraVersion.current) { setCameraReady(true); setModelStatus(v => v === 'Opening camera…' ? 'Geometry baseline' : v); }
+      if (id === cameraVersion.current) { setCameraReady(true); setModelStatus(v => v === 'opening' ? 'geometry' : v); }
     } catch { if (id === cameraVersion.current) fallbackCamera(); }
   }
 
@@ -167,10 +175,10 @@ function App() {
     active.current = true;
     const input = demo ? 'demo' : mode;
     const list = entries.map((text, id) => ({ id, text: text.trim() })).filter(item => item.text);
-    const set = list.length || input !== 'demo' ? list : examples.map((text, id) => ({ id, text }));
+    const set: Memory[] = list.length || input !== 'demo' ? list : t.examples.map((_, id) => ({ id, example: true }));
     setWorking(true);
     setThemeOpen(false);
-    inform('');
+    inform();
     let audio: PerformanceAudio | undefined;
     let enterFullscreen: Promise<void> | undefined;
     try {
@@ -191,7 +199,7 @@ function App() {
       soundtrack.current = undefined;
       active.current = false;
       setWorking(false);
-      inform(file ? 'This audio file could not be opened. Choose another track or return to Winter Nocturne.' : 'Audio could not start. Try Begin again.');
+      inform(file ? 'audioFile' : 'audioStart');
       return;
     }
     setMode(input);
@@ -230,7 +238,7 @@ function App() {
     const v = current.current;
     const source = v.showCamera && camera.current?.video.readyState && camera.current.video.readyState >= 2 ? camera.current : undefined;
     const useCutout = Boolean(v.cutout && source?.cutoutReady);
-    return { theme: v.theme, stage: sceneStage.current, memory: v.selection?.text, camera: useCutout ? source?.cutout : source?.video, cutout: useCutout, corner: v.corner };
+    return { language: v.language, theme: v.theme, stage: sceneStage.current, memory: v.selection && memoryText(v.selection, v.language), camera: useCutout ? source?.cutout : source?.video, cutout: useCutout, corner: v.corner };
   }
 
   function poster() {
@@ -244,29 +252,29 @@ function App() {
     try {
       engine.snapshot(w, h, gl => paintComposition(ctx, gl, composition()));
       output.toBlob(blob => {
-        if (blob) { download(blob, `dear-december-${dateStamp()}.png`); inform('Poster saved.', true); }
-        else inform('Poster export failed. Try a smaller browser window.', true);
+        if (blob) { download(blob, `dear-december-${dateStamp()}.png`); inform('posterSaved', true); }
+        else inform('posterFailed', true);
       }, 'image/png');
-    } catch { inform('Poster export is unavailable on this device.', true); }
+    } catch { inform('posterUnavailable', true); }
   }
 
   function startRecording() {
     const engine = scene.current, bounds = art.current?.getBoundingClientRect();
     if (!engine || !bounds || recorder.current) return;
     const choice = videoFormats.find(f => f.mime === format);
-    if (!choice) { inform('Video recording is unavailable in this browser.', true); return; }
+    if (!choice) { inform('videoUnavailable', true); return; }
     const [w, h] = dimensions(lens, false, bounds.width / bounds.height);
     try {
       const process = makeRecording(w, h, choice, soundtrack.current?.capture.stream.getAudioTracks()[0], blob => {
-        if (blob) { download(blob, `dear-december-${dateStamp()}.${choice.ext}`); inform('Recording saved.', true); }
-        else inform('Recording could not be written.', true);
+        if (blob) { download(blob, `dear-december-${dateStamp()}.${choice.ext}`); inform('recordingSaved', true); }
+        else inform('recordingFailed', true);
       });
       recorder.current = process;
       paintComposition(process.ctx, engine.renderer.domElement, composition());
       engine.setComposite(() => paintComposition(process.ctx, engine.renderer.domElement, composition()));
       setRecording(true);
       setDialog(null);
-    } catch { inform('Video recording could not start.', true); }
+    } catch { inform('recordingStart', true); }
   }
 
   function stopRecording() {
@@ -285,7 +293,7 @@ function App() {
     catch {
       if (engine === camera.current) {
         setCutout(false);
-        inform('Background removal could not start.', true);
+        inform('backgroundFailed', true);
       }
     } finally {
       if (engine === camera.current) setCutoutLoading(false);
@@ -393,6 +401,11 @@ function App() {
   }, [lens, isIntro]);
   useEffect(() => { scene.current?.setTheme(theme); }, [theme]);
   useEffect(() => {
+    document.documentElement.lang = language;
+    document.title = language === 'en' ? `${brand} — ${t.tagline}` : `${t.titleStart}${t.titleEnd} — ${brand}`;
+    document.querySelector('meta[name="description"]')?.setAttribute('content', t.description);
+  }, [language, t]);
+  useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setDialog(null);
@@ -417,91 +430,94 @@ function App() {
     setTimeout(() => document.querySelector<HTMLTextAreaElement>('.memory-row:last-child textarea')?.focus(), 0);
   }
 
-  return <main ref={view} data-theme={theme} className={`app ${isIntro ? 'intro' : 'performance'} ${cinematic ? 'cinematic' : ''} ${isEnd ? 'ending' : ''}`}>
+  return <main ref={view} lang={language} data-theme={theme} className={`app ${isIntro ? 'intro' : 'performance'} ${cinematic ? 'cinematic' : ''} ${isEnd ? 'ending' : ''}`}>
     <div className={`stage-region lens-${lens}`}>
       <div className="art" ref={art} />
       <div className="stage-overlay" onPointerMove={e => trackPointer(e)} onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); trackPointer(e, true); }} onPointerUp={e => trackPointer(e, false)} onPointerCancel={() => { pointer.current.pressed = false; }} onPointerLeave={() => { if (!pointer.current.pressed) pointer.current.hand = undefined; }}>
-        {!isIntro && memories.map(item => <button key={item.id} title="Reveal memory" aria-label={`Reveal memory ${item.id + 1}`} className="memory-marker" ref={el => { if (el) markerEls.current.set(item.id, el); else markerEls.current.delete(item.id); }} onPointerDown={e => e.stopPropagation()} onClick={() => recall(item)} />)}
+        {!isIntro && memories.map(item => <button key={item.id} title={t.revealMemory} aria-label={t.revealMemoryAt(item.id + 1)} className="memory-marker" ref={el => { if (el) markerEls.current.set(item.id, el); else markerEls.current.delete(item.id); }} onPointerDown={e => e.stopPropagation()} onClick={() => recall(item)} />)}
         {!isIntro && [0, 1].map(i => <span key={i} ref={el => { if (el) cursorEls.current[i] = el; }} className="hand-cursor" aria-hidden="true"/>)}
       </div>
-      {!isIntro && showCamera && cameraReady && <canvas className={`camera-overlay ${corner} ${cutout ? 'cutout' : ''}`} ref={viewCamera} width={360} height={270} aria-label="Camera preview"/>}
-      {selection && !isEnd && <div key={selection.id} aria-live="polite" className="memory-reveal"><span>✧</span><p>{selection.text}</p><button className="icon-button" onClick={clearMemory} aria-label="Dismiss memory"><Icon name="close" size={17}/></button></div>}
-      {isEnd && <div className="ending-copy"><p>{closing}</p><small>{question}</small><small lang="zh-CN">这一年发生的所有事情里，有什么是你想留下的？</small></div>}
+      {!isIntro && showCamera && cameraReady && <canvas className={`camera-overlay ${corner} ${cutout ? 'cutout' : ''}`} ref={viewCamera} width={360} height={270} aria-label={t.cameraPreview}/>}
+      {selection && !isEnd && <div key={selection.id} aria-live="polite" className="memory-reveal"><span>✧</span><p>{memoryText(selection, language)}</p><button className="icon-button" onClick={clearMemory} aria-label={t.dismissMemory}><Icon name="close" size={17}/></button></div>}
+      {isEnd && <div className="ending-copy"><p>{t.closing}</p><small>{t.question}</small><small className="ending-translation" lang={secondaryLanguage}>{words[secondaryLanguage].question}</small></div>}
     </div>
     <header className="topbar ui">
-      <button className="wordmark" onClick={isIntro ? undefined : returnHome} aria-label={isIntro ? 'Dear December' : 'Return to beginning'}><span className="brand-mark"><Icon name="star" size={19}/></span><span>Dear December<span className="wordmark-period">.</span></span></button>
+      <button className="wordmark" onClick={isIntro ? undefined : returnHome} aria-label={isIntro ? brand : t.home}><span className="brand-mark"><Icon name="star" size={19}/></span><span className="wordmark-name" lang="en">{brand}<span className="wordmark-period">.</span></span></button>
       <div className="top-actions">
-        <div className="theme-control">
-          <button className="top-button theme-trigger" onClick={() => setThemeOpen(!themeOpen)} aria-expanded={themeOpen}><span className="swatch" style={{ '--swatch': palettes[theme].light } as React.CSSProperties}/><span>{theme}</span><Icon name="chevron" size={13}/></button>
-          {themeOpen && <div className="theme-menu">{themeNames.map(name => <button key={name} onClick={() => { setTheme(name); setThemeOpen(false); }}><span className="swatch" style={{ '--swatch': palettes[name].light } as React.CSSProperties}/>{name}{theme === name && <Icon name="check" size={14}/>}</button>)}</div>}
+        <div className="language-switch" role="group" aria-label={t.language}>
+          {(['en', 'zh-CN'] as const).map(option => <button key={option} lang={option} aria-pressed={language === option} onClick={() => chooseLanguage(option)}>{languages[option]}</button>)}
         </div>
-        <button className="top-button guide-button" aria-label="Guide" onClick={() => setDialog('guide')}><span className="question-icon" aria-hidden="true">?</span><span>Guide</span></button>
+        <div className="theme-control">
+          <button className="top-button theme-trigger" onClick={() => setThemeOpen(!themeOpen)} aria-expanded={themeOpen} aria-label={t.themes[theme]}><span className="swatch" style={{ '--swatch': palettes[theme].light } as React.CSSProperties}/><span>{t.themes[theme]}</span><Icon name="chevron" size={13}/></button>
+          {themeOpen && <div className="theme-menu">{themeNames.map(name => <button key={name} onClick={() => { setTheme(name); setThemeOpen(false); }}><span className="swatch" style={{ '--swatch': palettes[name].light } as React.CSSProperties}/>{t.themes[name]}{theme === name && <Icon name="check" size={14}/>}</button>)}</div>}
+        </div>
+        <button className="top-button guide-button" aria-label={t.guide} onClick={() => setDialog('guide')}><span className="question-icon" aria-hidden="true">?</span><span>{t.guide}</span></button>
       </div>
     </header>
     {isIntro ? <>
       <section className="entry ui">
-        <p className="kicker"><span className="kicker-star">✦</span> A winter installation</p>
-        <h1>Dear <em>December<span>.</span></em></h1>
-        <p className="tagline">Some things are worth keeping.</p>
+        <p className="kicker"><span className="kicker-star">✦</span> {t.installation}</p>
+        <h1>{t.titleStart}{language === 'en' ? ' ' : ''}<em>{t.titleEnd}<span>{t.titlePeriod}</span></em></h1>
+        <p className="tagline">{t.tagline}</p>
         <div className="entry-card">
-          <div className="input-heading"><label htmlFor="memory-0">Before the year ends, what would you like to keep?</label><span>{entries.filter(item => item.trim()).length}<span className="slash">/</span>5</span></div>
+          <div className="input-heading"><label htmlFor="memory-0">{t.openingQuestion}</label><span>{entries.filter(item => item.trim()).length}<span className="slash">/</span>5</span></div>
           <div className="memory-list">
-            {entries.map((entry, index) => <div className="memory-row" key={index}><span aria-hidden="true">✧</span><textarea id={`memory-${index}`} aria-label={`Memory ${index + 1}`} value={entry} maxLength={180} rows={index === 0 ? 2 : 1} placeholder={index === 0 ? 'A place, a person, a moment…' : 'Another moment…'} onChange={e => editEntry(index, e.target.value)}/>{entries.length > 1 && <button className="icon-button remove-memory" onClick={() => setEntries(items => items.filter((_, i) => i !== index))} aria-label={`Remove memory ${index + 1}`}><Icon name="close" size={15}/></button>}</div>)}
+            {entries.map((entry, index) => <div className="memory-row" key={index}><span aria-hidden="true">✧</span><textarea id={`memory-${index}`} aria-label={t.memory(index + 1)} value={entry} maxLength={180} rows={index === 0 ? 2 : 1} placeholder={index === 0 ? t.firstPlaceholder : t.nextPlaceholder} onChange={e => editEntry(index, e.target.value)}/>{entries.length > 1 && <button className="icon-button remove-memory" onClick={() => setEntries(items => items.filter((_, i) => i !== index))} aria-label={t.removeMemory(index + 1)}><Icon name="close" size={15}/></button>}</div>)}
           </div>
-          <button className="add-memory" disabled={entries.length >= 5} onClick={addEntry}><Icon name="plus" size={15}/> Add a memory</button>
+          <button className="add-memory" disabled={entries.length >= 5} onClick={addEntry}><Icon name="plus" size={15}/> {t.addMemory}</button>
           <div className="music-pick">
-            <span className="small-label">Soundtrack</span>
+            <span className="small-label">{t.soundtrack}</span>
             <div className="music-options">
-              <button className={`music-option ${!file ? 'chosen' : ''}`} onClick={() => { setFile(undefined); if (fileInput.current) fileInput.current.value = ''; }} aria-pressed={!file}><Icon name="wave" size={18}/><span><strong>Winter Nocturne</strong><small>Original ambient score</small></span></button>
-              <button className={`music-option ${file ? 'chosen' : ''}`} title={file?.name} onClick={() => fileInput.current?.click()}><Icon name="upload" size={17}/><span><strong>{file ? file.name : 'Upload music'}</strong><small>From your device</small></span></button>
-              <input hidden ref={fileInput} type="file" accept="audio/*,.m4a,.flac" onChange={e => { if (e.target.files?.[0]) { setFile(e.target.files[0]); inform(''); } e.target.value = ''; }}/>
+              <button className={`music-option ${!file ? 'chosen' : ''}`} onClick={() => { setFile(undefined); if (fileInput.current) fileInput.current.value = ''; }} aria-pressed={!file}><Icon name="wave" size={18}/><span><strong>{t.nocturne}</strong><small>{t.originalScore}</small></span></button>
+              <button className={`music-option ${file ? 'chosen' : ''}`} title={file?.name} onClick={() => fileInput.current?.click()}><Icon name="upload" size={17}/><span><strong>{file ? file.name : t.uploadMusic}</strong><small>{t.fromDevice}</small></span></button>
+              <input hidden ref={fileInput} type="file" accept="audio/*,.m4a,.flac" onChange={e => { if (e.target.files?.[0]) { setFile(e.target.files[0]); inform(); } e.target.value = ''; }}/>
             </div>
           </div>
           <div className="entry-bottom">
-            <button className="primary-button" onClick={() => void begin()} disabled={working || rendererError}><Icon name="star" size={17}/>{working ? 'Preparing…' : 'Begin'}</button>
-            <button className="demo-button" onClick={() => void begin(true)} disabled={working || rendererError}><Icon name="play" size={16}/> Watch demo</button>
+            <button className="primary-button" onClick={() => void begin()} disabled={working || rendererError}><Icon name="star" size={17}/>{working ? t.preparing : t.begin}</button>
+            <button className="demo-button" onClick={() => void begin(true)} disabled={working || rendererError}><Icon name="play" size={16}/> {t.watchDemo}</button>
           </div>
-          <div className="input-mode" aria-label="Input mode"><button aria-pressed={mode !== 'camera'} onClick={() => setMode('pointer')}><Icon name="pointer" size={14}/> Mouse or touch</button><button aria-pressed={mode === 'camera'} onClick={() => setMode('camera')}><Icon name="camera" size={15}/> Hand gestures</button></div>
+          <div className="input-mode" aria-label={t.inputMode}><button aria-pressed={mode !== 'camera'} onClick={() => setMode('pointer')}><Icon name="pointer" size={14}/> {t.inputs.pointer}</button><button aria-pressed={mode === 'camera'} onClick={() => setMode('camera')}><Icon name="camera" size={15}/> {t.inputs.camera}</button></div>
         </div>
       </section>
-      <aside className="art-caption ui" aria-label="Live preview"><span className="live-dot"/><div><b>THE MEMORY TREE</b><span>Live particle study</span></div></aside>
-      <footer className="intro-footer ui"><span>Made of starlight and the things we keep.</span><button onClick={() => setDialog('lab')}>Gesture lab <Icon name="chevron" size={13}/></button><span className="privacy"><Icon name="circle" size={12}/> Camera and music stay on your device</span></footer>
+      <aside className="art-caption ui" aria-label={t.livePreview}><span className="live-dot"/><div><b>{t.tree}</b><span>{t.particleStudy}</span></div></aside>
+      <footer className="intro-footer ui"><span>{t.footer}</span><button onClick={() => setDialog('lab')}>{t.lab.title} <Icon name="chevron" size={13}/></button><span className="privacy"><Icon name="circle" size={12}/> {t.privacy}</span></footer>
     </> : <>
-      <div className="stage-tag ui"><span className="live-dot"/>{isEnd ? 'The Ending' : stage === 'formation' ? 'The Formation' : 'The Memories'}</div>
-      {!cinematic && !isEnd && <div className="performance-hint ui">{stage === 'formation' ? mode === 'camera' ? 'Move your hands to shape the starlight.' : mode === 'demo' ? 'The tree is taking shape.' : 'Drag to gather the starlight · Shift to spread it.' : memories.length ? mode === 'camera' ? 'Pinch near a star to reveal a memory.' : mode === 'demo' ? 'The stars will reveal their memories.' : 'Select a star to reveal a memory.' : 'Move through the starlight.'}</div>}
-      {cinematic && <button className="cinematic-exit icon-button" onClick={() => setCinematic(false)} aria-label="Exit cinematic mode"><Icon name="expand"/></button>}
+      <div className="stage-tag ui"><span className="live-dot"/>{isEnd ? t.ending : stage === 'formation' ? t.formation : t.memories}</div>
+      {!cinematic && !isEnd && <div className="performance-hint ui">{stage === 'formation' ? t.formationHints[mode] : memories.length ? t.memoryHints[mode] : t.noMemoriesHint}</div>}
+      {cinematic && <button className="cinematic-exit icon-button" onClick={() => setCinematic(false)} aria-label={t.exitCinematic}><Icon name="expand"/></button>}
       <footer className="performance-footer ui">
         {!isEnd && <div className="transport">
-          <button className="icon-button" aria-label={playing ? 'Pause soundtrack' : 'Play soundtrack'} onClick={() => { const audio = soundtrack.current; if (audio?.playing) audio.pause(); else audio?.play(); setPlaying(Boolean(audio?.playing)); }}><Icon name={playing ? 'pause' : 'play'}/></button>
-          <div className="track-label"><b>{file?.name || 'Winter Nocturne'}</b><div className="track-progress" role="progressbar" aria-label="Soundtrack progress" aria-valuenow={time} aria-valuemin={0} aria-valuemax={Math.ceil(duration)}><span style={{ width: `${time / duration * 100}%` }}/></div></div>
+          <button className="icon-button" aria-label={playing ? t.pauseMusic : t.playMusic} onClick={() => { const audio = soundtrack.current; if (audio?.playing) audio.pause(); else audio?.play(); setPlaying(Boolean(audio?.playing)); }}><Icon name={playing ? 'pause' : 'play'}/></button>
+          <div className="track-label"><b>{file?.name || t.nocturne}</b><div className="track-progress" role="progressbar" aria-label={t.musicProgress} aria-valuenow={time} aria-valuemin={0} aria-valuemax={Math.ceil(duration)}><span style={{ width: `${time / duration * 100}%` }}/></div></div>
           <span className="time">{lengthLabel(time)} / {lengthLabel(duration)}</span>
         </div>}
         <div className="performance-actions">
-          {recording && <button className="outline-button stop-recording" onClick={stopRecording}><span className="record-dot"/> Stop recording</button>}
-          {isEnd ? <><button className="outline-button" onClick={returnHome}>Begin again</button><button className="primary-button small-button" onClick={poster}><Icon name="download" size={17}/> Save poster</button></> : <button className="outline-button end-button" onClick={finish}>End performance</button>}
-          <button className="outline-button" onClick={() => setDialog('creator')}><Icon name="settings" size={17}/><span>Creator</span></button>
-          <button className="icon-button fs-button" onClick={() => void fullscreen(true)} aria-label="Toggle fullscreen"><Icon name="expand"/></button>
+          {recording && <button className="outline-button stop-recording" onClick={stopRecording}><span className="record-dot"/> {t.stopRecording}</button>}
+          {isEnd ? <><button className="outline-button" onClick={returnHome}>{t.beginAgain}</button><button className="primary-button small-button" onClick={poster}><Icon name="download" size={17}/> {t.savePoster}</button></> : <button className="outline-button end-button" onClick={finish}>{t.endPerformance}</button>}
+          <button className="outline-button" onClick={() => setDialog('creator')}><Icon name="settings" size={17}/><span>{t.creator}</span></button>
+          <button className="icon-button fs-button" onClick={() => void fullscreen(true)} aria-label={t.toggleFullscreen}><Icon name="expand"/></button>
         </div>
       </footer>
     </>}
-    {(status || rendererError) && <div className={`status-toast ${isIntro ? 'intro-toast' : ''}`} role="status">{rendererError ? 'WebGL 2 is unavailable in this browser. Enable hardware acceleration to enter the installation.' : status}</div>}
+    {(status || rendererError) && <div className={`status-toast ${isIntro ? 'intro-toast' : ''}`} role="status">{rendererError ? t.notices.webGL : status && t.notices[status]}</div>}
     {dialog && <div className="scrim" onPointerDown={e => { if (e.target === e.currentTarget) setDialog(null); }}>
-      {dialog === 'lab' ? <Suspense fallback={<div className="dialog" role="status">Loading gesture lab…</div>}><Lab close={() => setDialog(null)}/></Suspense> : <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
-        <button className="icon-button dialog-close" aria-label="Close dialog" onClick={() => setDialog(null)}><Icon name="close"/></button>
+      {dialog === 'lab' ? <Suspense fallback={<div className="dialog" role="status">{t.lab.loading}</div>}><Lab language={language} close={() => setDialog(null)}/></Suspense> : <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+        <button className="icon-button dialog-close" aria-label={t.closeDialog} onClick={() => setDialog(null)}><Icon name="close"/></button>
         {dialog === 'guide' ? <>
-          <p className="kicker">Dear December</p><h2 id="dialog-title">How to move the stars</h2>
-          <dl className="guide-list"><div><dt>Open your palm</dt><dd>Let the starlight spread.</dd></div><div><dt>Close your fist</dt><dd>Gather particles around your hand.</dd></div><div><dt>Move both hands</dt><dd>Separate to widen the tree. Bring them together for a brighter glow.</dd></div><div><dt>Swipe sideways</dt><dd>Set the tree rotating.</dd></div><div><dt>Pinch a star</dt><dd>Reveal a memory when the tree has formed.</dd></div><div><dt>Mouse or touch</dt><dd>Move to guide, drag to gather, and tap a star to read it. Hold Shift to spread the particles.</dd></div></dl>
-          <button className="outline-button" onClick={() => setDialog('lab')}>Open gesture lab</button>
+          <p className="kicker" lang="en">{brand}</p><h2 id="dialog-title">{t.guideTitle}</h2>
+          <dl className="guide-list">{t.guideSteps.map(([action, effect]) => <div key={action}><dt>{action}</dt><dd>{effect}</dd></div>)}</dl>
+          <button className="outline-button" onClick={() => setDialog('lab')}>{t.openLab}</button>
         </> : <>
-          <p className="kicker">Dear December</p><h2 id="dialog-title">Creator mode</h2>
-          <div className="creator-group"><span className="small-label">Composition</span><div className="row">{([['auto', 'Fit screen'], ['portrait', '9:16'], ['landscape', '16:9']] as const).map(([value, label]) => <button key={value} className={`outline-button ${lens === value ? 'chosen' : ''}`} aria-pressed={lens === value} disabled={recording} onClick={() => setLens(value)}>{label}</button>)}</div></div>
-          {!isEnd && <div className="creator-group"><span className="small-label">Interaction</span><div className="row">{modes.map(item => <button key={item.id} className={`outline-button ${item.id === mode ? 'chosen' : ''}`} onClick={() => selectInput(item.id)}><Icon name={item.icon} size={15}/>{item.label}</button>)}</div>{mode === 'camera' && <small aria-live="polite">{modelStatus}</small>}</div>}
-          {mode === 'camera' && <div className="creator-group"><label className="check-row"><input type="checkbox" checked={showCamera} disabled={!cameraReady} onChange={e => setShowCamera(e.target.checked)}/> Include camera window</label>{showCamera && <div className="row camera-options"><select aria-label="Camera window position" value={corner} onChange={e => setCorner(e.target.value)}>{corners.map(position => <option key={position} value={position}>{position.replace('-', ' ')}</option>)}</select><label className="check-row"><input type="checkbox" checked={cutout} disabled={!cameraReady || cutoutLoading} onChange={e => void changeMatte(e.target.checked)}/> Remove background</label></div>}{cutoutLoading && <small role="status">Preparing background removal…</small>}</div>}
-          <div className="creator-group export-controls"><span className="small-label">Export</span><div className="row">
-            <button className="outline-button" onClick={poster}><Icon name="download" size={17}/> PNG poster</button>
-            {recording ? <button className="outline-button" onClick={stopRecording}><span className="record-dot"/> Stop recording</button> : <><select value={format} onChange={e => setFormat(e.target.value)} aria-label="Video format" disabled={!videoFormats.length}>{videoFormats.length ? videoFormats.map(f => <option value={f.mime} key={f.mime}>{f.label}</option>) : <option value="">Unavailable</option>}</select><button className="outline-button" onClick={startRecording} disabled={!videoFormats.length}><Icon name="circle" size={17}/> Start recording</button></>}
+          <p className="kicker" lang="en">{brand}</p><h2 id="dialog-title">{t.creatorMode}</h2>
+          <div className="creator-group"><span className="small-label">{t.composition}</span><div className="row">{([['auto', t.fitScreen], ['portrait', '9:16'], ['landscape', '16:9']] as const).map(([value, label]) => <button key={value} className={`outline-button ${lens === value ? 'chosen' : ''}`} aria-pressed={lens === value} disabled={recording} onClick={() => setLens(value)}>{label}</button>)}</div></div>
+          {!isEnd && <div className="creator-group"><span className="small-label">{t.interaction}</span><div className="row">{modes.map(item => <button key={item.id} className={`outline-button ${item.id === mode ? 'chosen' : ''}`} onClick={() => selectInput(item.id)}><Icon name={item.icon} size={15}/>{t.inputs[item.id]}</button>)}</div>{mode === 'camera' && <small aria-live="polite">{modelStatus && t.cameraModels[modelStatus]}</small>}</div>}
+          {mode === 'camera' && <div className="creator-group"><label className="check-row"><input type="checkbox" checked={showCamera} disabled={!cameraReady} onChange={e => setShowCamera(e.target.checked)}/> {t.includeCamera}</label>{showCamera && <div className="row camera-options"><select aria-label={t.cameraPosition} value={corner} onChange={e => setCorner(e.target.value as typeof corners[number])}>{corners.map(position => <option key={position} value={position}>{t.corners[position]}</option>)}</select><label className="check-row"><input type="checkbox" checked={cutout} disabled={!cameraReady || cutoutLoading} onChange={e => void changeMatte(e.target.checked)}/> {t.removeBackground}</label></div>}{cutoutLoading && <small role="status">{t.preparingBackground}</small>}</div>}
+          <div className="creator-group export-controls"><span className="small-label">{t.export}</span><div className="row">
+            <button className="outline-button" onClick={poster}><Icon name="download" size={17}/> {t.pngPoster}</button>
+            {recording ? <button className="outline-button" onClick={stopRecording}><span className="record-dot"/> {t.stopRecording}</button> : <><select value={format} onChange={e => setFormat(e.target.value)} aria-label={t.videoFormat} disabled={!videoFormats.length}>{videoFormats.length ? videoFormats.map(f => <option value={f.mime} key={f.mime}>{f.label}</option>) : <option value="">{t.unavailable}</option>}</select><button className="outline-button" onClick={startRecording} disabled={!videoFormats.length}><Icon name="circle" size={17}/> {t.startRecording}</button></>}
           </div></div>
-          <button className="primary-button small-button" onClick={() => { setDialog(null); setCinematic(true); }}><Icon name="expand" size={17}/> Enter cinematic mode</button><small className="key-help">Press Esc or C to show controls.</small>
+          <button className="primary-button small-button" onClick={() => { setDialog(null); setCinematic(true); }}><Icon name="expand" size={17}/> {t.enterCinematic}</button><small className="key-help">{t.cinematicKeys}</small>
         </>}
       </div>}
     </div>}

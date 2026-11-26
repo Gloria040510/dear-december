@@ -2,30 +2,35 @@ import { useEffect, useRef, useState } from 'react';
 import { gestures, type Frame, type Gesture } from './types';
 import { Icon } from './icons';
 import { download } from './export';
+import { words, type Language, type Copy } from './words';
 
 type Measure = { accuracy: number; macroF1: number; confusion: number[][] };
 type Comparison = { samples: number; temporalCNN: Measure; rules: Measure };
 type Report = { syntheticClips: number; trainingClips: number; validationClips: number; syntheticTest: Comparison; realTest: Comparison | null };
 type Clip = { label: Gesture; frames: Frame[] };
+type CaptureState = keyof Copy['lab']['captureStatus'];
+type BenchmarkResult = Awaited<ReturnType<typeof import('./inference').benchmark>>;
 
-function Matrix({ title, metrics }: { title: string; metrics: Measure }) {
+function Matrix({ title, metrics, language }: { title: string; metrics: Measure; language: Language }) {
+  const t = words[language].lab;
   return <section className="matrix">
     <h3>{title}</h3>
-    <p>Accuracy {(metrics.accuracy * 100).toFixed(1)}% · Macro F1 {metrics.macroF1.toFixed(3)}</p>
-    <table><caption>Confusion matrix · actual rows, predicted columns</caption>
-      <thead><tr><th scope="col">Actual</th>{gestures.map(g => <th scope="col" key={g}>{g.split(' ').map(s => s[0]).join('')}</th>)}</tr></thead>
-      <tbody>{metrics.confusion.map((row, i) => <tr key={gestures[i]}><th scope="row">{gestures[i]}</th>{row.map((value, j) => <td className={j === i ? 'correct' : ''} key={j}>{value}</td>)}</tr>)}</tbody>
+    <p>{t.accuracy} {(metrics.accuracy * 100).toFixed(1)}% · {t.macroF1} {metrics.macroF1.toFixed(3)}</p>
+    <table><caption>{t.confusion}</caption>
+      <thead><tr><th scope="col">{t.actual}</th>{gestures.map(g => <th scope="col" key={g} title={t.gestures[g]}>{t.gestureShort[g]}</th>)}</tr></thead>
+      <tbody>{metrics.confusion.map((row, i) => <tr key={gestures[i]}><th scope="row">{t.gestures[gestures[i]]}</th>{row.map((value, j) => <td className={j === i ? 'correct' : ''} key={j}>{value}</td>)}</tr>)}</tbody>
     </table>
   </section>;
 }
 
-export default function Lab({ close }: { close: () => void }) {
+export default function Lab({ close, language }: { close: () => void; language: Language }) {
+  const t = words[language].lab;
   const [report, setReport] = useState<Report>();
-  const [measureStatus, setMeasureStatus] = useState('');
+  const [measurement, setMeasurement] = useState<BenchmarkResult | 'warming' | 'failed' | null>(null);
   const [reportError, setReportError] = useState(false);
   const [label, setLabel] = useState<Gesture>('Open Palm');
   const [clips, setClips] = useState<Clip[]>([]);
-  const [captureState, setCaptureState] = useState('Camera off');
+  const [captureState, setCaptureState] = useState<CaptureState>('off');
   const [ready, setReady] = useState(false);
   const [record, setRecord] = useState<number | null>(null);
   const video = useRef<HTMLVideoElement>(null);
@@ -44,7 +49,7 @@ export default function Lab({ close }: { close: () => void }) {
   async function enable() {
     const el = video.current;
     if (!el) return;
-    setCaptureState('Opening camera…');
+    setCaptureState('opening');
     let cancelled = false, stop: (() => void) | undefined;
     cleanup.current = () => { cancelled = true; stop?.(); };
     try {
@@ -56,7 +61,7 @@ export default function Lab({ close }: { close: () => void }) {
       const detector = await createLandmarker();
       if (cancelled) { detector.close(); stop(); return; }
       setReady(true);
-      setCaptureState('Camera ready');
+      setCaptureState('ready');
       let raf = 0, previous = -1, last = 0, countdownEnd = 0;
       stop = () => { cancelAnimationFrame(raf); detector.close(); stream.getTracks().forEach(track => track.stop()); };
       const draw = (now: number) => {
@@ -71,7 +76,7 @@ export default function Lab({ close }: { close: () => void }) {
           recordRef.current = null;
           setRecord(null);
           setReady(false);
-          setCaptureState('Camera tracking stopped. Re-enable the camera to try again.');
+          setCaptureState('stopped');
           return;
         }
         const canvas = landmarks.current;
@@ -88,8 +93,8 @@ export default function Lab({ close }: { close: () => void }) {
         countdownEnd ||= now + 1750;
         if (now < countdownEnd) return;
         if (out.landmarks.length !== 1) {
-          if (active.frames.length) { recordRef.current = null; setRecord(null); setCaptureState('A hand left the frame. Try the clip again.'); }
-          else if (now > countdownEnd + 2500) { recordRef.current = null; setRecord(null); setCaptureState('Keep one hand in the frame.'); }
+          if (active.frames.length) { recordRef.current = null; setRecord(null); setCaptureState('handLeft'); }
+          else if (now > countdownEnd + 2500) { recordRef.current = null; setRecord(null); setCaptureState('oneHand'); }
           return;
         }
         active.first ??= now;
@@ -97,7 +102,7 @@ export default function Lab({ close }: { close: () => void }) {
         setRecord(active.frames.length);
         if (active.frames.length === 32) {
           setClips(list => [...list, { label: active.label, frames: active.frames }]);
-          setCaptureState('Clip saved locally');
+          setCaptureState('clipSaved');
           recordRef.current = null;
           setRecord(null);
         }
@@ -105,39 +110,41 @@ export default function Lab({ close }: { close: () => void }) {
       raf = requestAnimationFrame(draw);
     } catch {
       stop?.();
-      if (!cancelled) setCaptureState('Camera unavailable. Check permission and try again.');
+      if (!cancelled) setCaptureState('unavailable');
     }
   }
 
   async function runBenchmark() {
-    setMeasureStatus('Warming up the model…');
-    try {
-      const result = await (await import('./inference')).benchmark();
-      setMeasureStatus(`${result.runs} inferences · median ${result.median.toFixed(2)} ms · p95 ${result.p95.toFixed(2)} ms · ${result.prediction}`);
-    } catch (error) { setMeasureStatus(error instanceof Error ? error.message : 'Benchmark unavailable.'); }
+    setMeasurement('warming');
+    try { setMeasurement(await (await import('./inference')).benchmark()); }
+    catch { setMeasurement('failed'); }
   }
 
+  const measureText = measurement === 'warming' ? t.warming : measurement === 'failed' ? t.benchmarkUnavailable : measurement && t.benchmark(
+    measurement.runs.toLocaleString(language), measurement.median.toFixed(2), measurement.p95.toFixed(2), t.gestures[measurement.prediction],
+  );
+
   return <div className="dialog lab-dialog" role="dialog" aria-modal="true" aria-labelledby="lab-title">
-    <button className="icon-button dialog-close" onClick={close} aria-label="Close gesture lab"><Icon name="close"/></button>
-    <p className="kicker">Behind the installation</p>
-    <h2 id="lab-title">Gesture lab</h2>
+    <button className="icon-button dialog-close" onClick={close} aria-label={t.close}><Icon name="close"/></button>
+    <p className="kicker">{t.behind}</p>
+    <h2 id="lab-title">{t.title}</h2>
     {report ? <>
-      <p>{report.syntheticClips.toLocaleString()} synthetic clips. The {report.syntheticTest.samples.toLocaleString()} test clips use held-out template and trajectory groups.</p>
-      <div className="matrices"><Matrix title="Temporal CNN" metrics={report.syntheticTest.temporalCNN}/><Matrix title="Geometry baseline" metrics={report.syntheticTest.rules}/></div>
-      <h3>Independent camera test</h3>
-      {report.realTest ? <><p>{report.realTest.samples} labeled camera clips.</p><div className="matrices"><Matrix title="Temporal CNN" metrics={report.realTest.temporalCNN}/><Matrix title="Geometry baseline" metrics={report.realTest.rules}/></div></> : <p>0 labeled camera clips. Real-camera accuracy is unmeasured.</p>}
-    </> : <p>{reportError ? 'Model metrics are unavailable.' : 'Loading model metrics…'}</p>}
-    <div className="row bench"><button className="outline-button" onClick={() => void runBenchmark()}>Measure browser latency</button><span aria-live="polite">{measureStatus}</span></div>
-    <h3>Capture a labeled gesture</h3>
-    <p>Choose a label, keep one hand in frame, and begin the gesture after the countdown. Each clip contains 32 landmark frames. JSON stays on your device.</p>
+      <p>{t.synthetic(report.syntheticClips.toLocaleString(language), report.syntheticTest.samples.toLocaleString(language))}</p>
+      <div className="matrices"><Matrix language={language} title={t.cnn} metrics={report.syntheticTest.temporalCNN}/><Matrix language={language} title={t.geometry} metrics={report.syntheticTest.rules}/></div>
+      <h3>{t.independentTest}</h3>
+      {report.realTest ? <><p>{t.labeledClips(report.realTest.samples.toLocaleString(language))}</p><div className="matrices"><Matrix language={language} title={t.cnn} metrics={report.realTest.temporalCNN}/><Matrix language={language} title={t.geometry} metrics={report.realTest.rules}/></div></> : <p>{t.noCameraClips}</p>}
+    </> : <p>{reportError ? t.metricsUnavailable : t.metricsLoading}</p>}
+    <div className="row bench"><button className="outline-button" onClick={() => void runBenchmark()} disabled={measurement === 'warming'}>{t.measure}</button><span aria-live="polite">{measureText}</span></div>
+    <h3>{t.capture}</h3>
+    <p>{t.instructions}</p>
     <div className="lab-frame"><video ref={video} playsInline muted/><canvas ref={landmarks} width={640} height={480}/>{!ready && <Icon name="camera" size={28}/>}</div>
     <div className="row lab-controls">
-      {!ready && <button className="outline-button" onClick={() => void enable()} disabled={captureState === 'Opening camera…'}>Enable camera</button>}
-      <label className="sr-only" htmlFor="gesture-label">Gesture label</label>
-      <select id="gesture-label" value={label} onChange={event => setLabel(event.target.value as Gesture)} disabled={record !== null}>{gestures.map(g => <option key={g}>{g}</option>)}</select>
-      <button className="outline-button" disabled={!ready || record !== null} onClick={() => { recordRef.current = { label, frames: [] }; setRecord(0); setCaptureState('Get ready…'); }}>Record clip</button>
-      <button className="outline-button" disabled={!clips.length || record !== null} onClick={() => download(new Blob([JSON.stringify({ version: 1, clips })], { type: 'application/json' }), 'dear-december-landmarks.json')}>Save JSON ({clips.length})</button>
+      {!ready && <button className="outline-button" onClick={() => void enable()} disabled={captureState === 'opening'}>{t.enableCamera}</button>}
+      <label className="sr-only" htmlFor="gesture-label">{t.gestureLabel}</label>
+      <select id="gesture-label" value={label} onChange={event => setLabel(event.target.value as Gesture)} disabled={record !== null}>{gestures.map(g => <option key={g} value={g}>{t.gestures[g]}</option>)}</select>
+      <button className="outline-button" disabled={!ready || record !== null} onClick={() => { recordRef.current = { label, frames: [] }; setRecord(0); }}>{t.record}</button>
+      <button className="outline-button" disabled={!clips.length || record !== null} onClick={() => download(new Blob([JSON.stringify({ version: 1, clips })], { type: 'application/json' }), 'dear-december-landmarks.json')}>{t.saveJson(clips.length.toLocaleString(language))}</button>
     </div>
-    <p className="capture-detail" aria-live="polite">{record === null ? captureState : record === 0 ? 'Get ready…' : `Capturing ${record}/32`}</p>
+    <p className="capture-detail" aria-live="polite">{record === null ? t.captureStatus[captureState] : record === 0 ? t.getReady : t.capturing(record)}</p>
   </div>;
 }

@@ -54,7 +54,7 @@ export class CameraHands {
   readonly video = document.createElement('video');
   cutoutReady = false;
 
-  constructor(private onHands: (hands: Hand[]) => void, private onModel: (state: string) => void, private onFailure: () => void) {
+  constructor(private onHands: (hands: Hand[]) => void, private onModel: (state: 'cnn' | 'geometry') => void, private onFailure: () => void) {
     this.video.muted = true;
     this.video.playsInline = true;
   }
@@ -71,8 +71,8 @@ export class CameraHands {
     void import('./inference').then(({ getInference }) => getInference()).then(classify => {
       if (this.disposed) return;
       this.classify = classify;
-      this.onModel('Temporal CNN');
-    }).catch(() => { if (!this.disposed) this.onModel('Geometry baseline'); });
+      this.onModel('cnn');
+    }).catch(() => { if (!this.disposed) this.onModel('geometry'); });
   }
 
   async setCutout(enabled: boolean) {
@@ -145,7 +145,7 @@ export class CameraHands {
           track.inferenceAt = now;
           track.pending = true;
           this.classify(data).then(value => { track.prediction = { ...value, t: now }; })
-            .catch(() => { this.classify = undefined; if (!this.disposed) this.onModel('Geometry baseline'); })
+            .catch(() => { this.classify = undefined; if (!this.disposed) this.onModel('geometry'); })
             .finally(() => { track.pending = false; });
         }
         const p = track.prediction;

@@ -4,6 +4,8 @@
 
 这是一个实时生成的冬日艺术装置。最多五条年度记忆会变成树上的星星，音乐和动作会影响每一场表演。[打开装置](https://dear-december-memories.sweet-pony-8082.chatgpt.site) · [English README](README.md)
 
+页面顶部的 **EN / 中文** 可随时切换界面与导出文案。首次访问会跟随浏览器语言，手动选择会保存在当前设备。
+
 ## 运行与体验
 
 ```sh

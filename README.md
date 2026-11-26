@@ -4,6 +4,8 @@
 
 An interactive winter installation. Five memories become stars on a tree shaped by movement and sound. The tree is drawn and simulated in the browser. [Open the installation](https://dear-december-memories.sweet-pony-8082.chatgpt.site) · [中文说明](README.zh-CN.md)
 
+Use **EN / 中文** in the header to switch the interface and export text during a performance. The site uses your browser language on the first visit and remembers your choice on the current device.
+
 ## Start
 
 ```sh

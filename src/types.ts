@@ -5,7 +5,8 @@ export type Mode = 'pointer' | 'camera' | 'demo';
 export type Point = { x: number; y: number; z: number };
 export type Hand = Point & { gesture: Gesture; vx: number; pinch: boolean };
 export type Frame = { points: Point[]; t: number; confidence: number };
-export type Memory = { id: number; text: string };
+export type Memory = { id: number } & ({ text: string } | { example: true });
+export type CameraModel = 'opening' | 'cnn' | 'geometry';
 export type Lens = 'auto' | 'portrait' | 'landscape';
 export const palettes = {
   Champagne: { background: '#0b100e', shadow: '#79572f', ink: '#bd854c', light: '#f3c684', white: '#fff1ce' },
